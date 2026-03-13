@@ -1,0 +1,2 @@
+The basics of FastF1 API is located in a Jupyter Notebook saved in another directory.
+Please refer to that directory.
