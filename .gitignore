@@ -1,2 +1,14 @@
 // cache folder
 cache/
+.venv/
+.ipynb_checkpoints/
+catboost_info/
+
+models/.ipynb_checkpoints/*
+
+lap_data_model_ready.csv
+lap_data_raw.csv
+
+stintiq_m1_catboost.cbm
+stintiq_m1_model_metadata.json
+stintiq_m1_pace_model.joblib
