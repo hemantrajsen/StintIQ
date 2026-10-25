@@ -14,3 +14,12 @@ lap_data_raw.csv
 stintiq_m1_catboost.cbm
 stintiq_m1_model_metadata.json
 stintiq_m1_pace_model.joblib
+
+.streamlit/
+.matplotlib/
+__pycache__/
+
+Model Development/.ipynb_checkpoints/*
+Model Development/cache/*
+
+StintIQ_Technical_Document.pdf

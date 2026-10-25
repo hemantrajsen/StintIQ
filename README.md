@@ -26,7 +26,23 @@ The “real-time” and “predictive strategy” components are the intended di
 ### Install
 
 ```bash
-pip install fastf1 pandas numpy matplotlib
+# Run once if the project environment does not exist yet:
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
+```
+
+The app dependencies include Streamlit, pandas, NumPy and Plotly. Install them into the same Python environment used to launch the app.
+
+### Run the Streamlit app
+
+```bash
+./.venv/bin/python -m streamlit run app.py
+```
+
+The notebooks also use FastF1 and Matplotlib; install those separately when working through the notebook examples:
+
+```bash
+python -m pip install fastf1 matplotlib
 ```
 
 FastF1 uses a local cache to speed up repeated analysis runs. This project expects a `cache/` directory in the repo root.
