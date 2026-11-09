@@ -18,6 +18,8 @@ stintiq_m1_pace_model.joblib
 .streamlit/
 .matplotlib/
 __pycache__/
+models/*
+fastf1_cache/*
 
 Model Development/.ipynb_checkpoints/*
 Model Development/cache/*
