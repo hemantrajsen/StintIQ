@@ -5,6 +5,7 @@ cache/
 .venv/
 .ipynb_checkpoints/
 catboost_info/
+fastf1_cache/
 
 models/.ipynb_checkpoints/*
 
@@ -23,5 +24,7 @@ fastf1_cache/*
 
 Model Development/.ipynb_checkpoints/*
 Model Development/cache/*
+archives/
+model5_outputs/
 
 StintIQ_Technical_Document.pdf

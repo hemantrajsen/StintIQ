@@ -1,0 +1,95 @@
+{
+  "primary_model": "LR: +weather",
+  "lr_C": 0.003,
+  "calibration_shift": -0.0875147449925648,
+  "calibration_slope": -3.648847250405025,
+  "n_events": 3,
+  "n_onsets": 6,
+  "n_at_risk_laps": 171,
+  "loeo_logloss": 0.15599293170629838,
+  "loeo_brier": 0.034154565978920935,
+  "loeo_auc": 0.34242424242424246,
+  "loeo_bss": 0.004211189292733231,
+  "features": [
+    "progress",
+    "laps_remaining",
+    "is_lap1",
+    "street_level",
+    "wall_risk",
+    "rain_prev",
+    "wet_frac_prev",
+    "track_temp",
+    "air_temp",
+    "humidity",
+    "rain_change",
+    "yellow_prev",
+    "yellow_max3",
+    "slow_frac_prev",
+    "pace_spread_prev",
+    "retired_prev",
+    "pit_frac_prev",
+    "tyre_mean_prev",
+    "compression_prev",
+    "laps_since_neut",
+    "n_prior_neut",
+    "restart_window"
+  ],
+  "feature_groups": {
+    "time": [
+      "progress",
+      "laps_remaining",
+      "is_lap1"
+    ],
+    "circuit": [
+      "street_level",
+      "wall_risk"
+    ],
+    "weather": [
+      "rain_prev",
+      "wet_frac_prev",
+      "track_temp",
+      "air_temp",
+      "humidity",
+      "rain_change"
+    ],
+    "incident": [
+      "yellow_prev",
+      "yellow_max3",
+      "slow_frac_prev",
+      "pace_spread_prev",
+      "retired_prev"
+    ],
+    "field": [
+      "pit_frac_prev",
+      "tyre_mean_prev",
+      "compression_prev"
+    ],
+    "state": [
+      "laps_since_neut",
+      "n_prior_neut",
+      "restart_window"
+    ]
+  },
+  "synthetic_data": false,
+  "status_min_frac": 0.15,
+  "created": "2026-11-20 11:18:23",
+  "duration_sc": [],
+  "duration_vsc": [
+    4,
+    3,
+    2,
+    4,
+    6,
+    4
+  ],
+  "pace_ratio": {
+    "SC": null,
+    "VSC": {
+      "median": 1.0714617899049026,
+      "q10": 1.0026684871074134,
+      "q90": 1.2939550396408461,
+      "n": 23
+    }
+  },
+  "p_sc_given_event": 0.2
+}
