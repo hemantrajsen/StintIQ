@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,14 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+from model3_strategy_simulator import (
+    CIRCUIT_DEFAULTS,
+    CLIFF_PRIORS,
+    CircuitProfile,
+    StrategySimulator,
+    driver_pace_delta,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +169,11 @@ def frame_for_exploration() -> pd.DataFrame | None:
     return None
 
 
+@st.cache_resource(show_spinner=False)
+def get_strategy_simulator() -> StrategySimulator:
+    return StrategySimulator()
+
+
 def team_color_map(frame: pd.DataFrame, drivers: list[str]) -> dict[str, str]:
     colors: dict[str, str] = {}
     if "Team" not in frame.columns or "Driver" not in frame.columns:
@@ -220,7 +234,7 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Workspace",
-        ["Overview", "Race Explorer", "Telemetry", "Stint Lab", "Model 01", "Roadmap & Files"],
+        ["Overview", "Race Explorer", "Telemetry", "Stint Lab", "Strategy Simulator", "Model 01", "Roadmap & Files"],
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -274,7 +288,7 @@ if page == "Overview":
         status_rows = [
             ("M1", "Lap pace", "Notebook benchmark recorded", "active"),
             ("M2", "Tire degradation", "Exploration / implementation needed", "explore"),
-            ("M3", "Strategy simulation", "Planned", "planned"),
+            ("M3", "Strategy simulation", "Interactive research preview", "active"),
             ("M4", "SC / VSC risk", "Planned", "planned"),
             ("M5", "Race outcome", "Exploratory notebook only", "explore"),
         ]
@@ -535,6 +549,183 @@ elif page == "Stint Lab":
             st.info("This is a historical comparison, not a machine-learning prediction or pit-stop recommendation. Sample sizes differ by compound; use the lap count when interpreting a median.")
 
 
+elif page == "Strategy Simulator":
+    hero(
+        "Model 3 · Decision support",
+        "Strategy Simulator",
+        "Compare dry one-stop and two-stop plans with tire-degradation uncertainty, pit-stop variation, and Safety Car / VSC risk.",
+        "Research preview",
+    )
+    if model_df is None:
+        st.warning("Model 1 pace benchmarks are unavailable. Add lap_data_model_ready.csv to calculate driver pace deltas.")
+    if raw_df is None:
+        st.warning("Raw event laps are unavailable. Circuit defaults will be used until lap_data_raw.csv is available.")
+
+    raw_source = raw_df if raw_df is not None else RAW_PATH
+    driver_source = model_df if model_df is not None else raw_df
+    driver_options = options_for(driver_source, "Driver")
+    if not driver_options:
+        driver_options = ["NOR"]
+    default_driver = "NOR" if "NOR" in driver_options else driver_options[0]
+    default_driver_index = driver_options.index(default_driver)
+    circuit_options = list(CIRCUIT_DEFAULTS)
+    default_circuit = "Bahrain" if "Bahrain" in circuit_options else circuit_options[0]
+
+    with st.form("model3_strategy_form"):
+        circuit_col, driver_col = st.columns(2)
+        with circuit_col:
+            selected_circuit = st.selectbox("Circuit", circuit_options, index=circuit_options.index(default_circuit), key="m3_circuit")
+        with driver_col:
+            selected_driver = st.selectbox("Driver", driver_options, index=default_driver_index, key="m3_driver")
+
+        circuit_reference = CircuitProfile.from_raw_data(raw_source, selected_circuit)
+        control_cols = st.columns([1.15, 1, 1.3])
+        with control_cols[0]:
+            stop_choice = st.radio("Maximum pit stops", ["1 stop only", "Up to 2 stops"], index=1, horizontal=True, key="m3_stops")
+        with control_cols[1]:
+            n_sims = st.slider("Monte Carlo runs", min_value=500, max_value=2000, value=1000, step=250, key="m3_iterations")
+        with control_cols[2]:
+            track_temp = st.slider(
+                "Track temperature (°C)", min_value=15.0, max_value=50.0,
+                value=float(np.clip(circuit_reference.track_temp, 15.0, 50.0)), step=0.5,
+                key=f"m3_track_temp_{selected_circuit}",
+            )
+        run_simulation = st.form_submit_button("Run Simulation", type="primary", use_container_width=True)
+
+    if run_simulation:
+        team = None
+        team_source = model_df if model_df is not None else raw_df
+        if team_source is not None and {"Driver", "Team"}.issubset(team_source.columns):
+            teams = team_source.loc[team_source["Driver"].astype(str).str.upper().eq(selected_driver.upper()), "Team"].dropna()
+            if not teams.empty:
+                team = str(teams.mode().iloc[0])
+        pace_delta = driver_pace_delta(
+            model_df if model_df is not None else pd.DataFrame(),
+            selected_driver,
+            team=team,
+        )
+        profile = CircuitProfile.from_raw_data(raw_source, selected_circuit)
+        profile.track_temp = float(track_temp)
+        profile.driver_delta_seconds = pace_delta
+        max_stops = 1 if stop_choice == "1 stop only" else 2
+        simulator = get_strategy_simulator()
+        try:
+            with st.spinner("Simulating candidate strategies across shared race scenarios…"):
+                started = time.perf_counter()
+                plans = simulator.optimize(
+                    profile,
+                    max_stops=max_stops,
+                    n_sims=int(n_sims),
+                    top_k=3,
+                    driver=selected_driver,
+                    team=team or "UNK",
+                )
+                elapsed = time.perf_counter() - started
+            st.session_state["model3_last_run"] = {
+                "circuit": selected_circuit,
+                "driver": selected_driver,
+                "profile": profile,
+                "plans": plans,
+                "n_sims": int(n_sims),
+                "elapsed": elapsed,
+                "m2_catboost": simulator.deg_bridge.has_catboost,
+                "m4_joblib": simulator.hazard_bridge.has_joblib,
+            }
+        except Exception as exc:
+            st.error(f"Strategy simulation could not complete: {exc}")
+
+    last_run = st.session_state.get("model3_last_run")
+    if last_run:
+        plans = last_run["plans"]
+        profile = last_run["profile"]
+        section(
+            f"{last_run['circuit']} · {last_run['driver']}",
+            f"{last_run['n_sims']:,} shared Monte Carlo scenarios · completed in {last_run['elapsed']:.2f}s",
+        )
+        card_cols = st.columns(3)
+        for col, plan in zip(card_cols, plans):
+            with col:
+                st.markdown(f"<div class='surface' style='height:100%'><div class='small-label'>{plan['label']}</div><div style='font-weight:700;margin:8px 0 12px'>{plan['strategy_summary']}</div></div>", unsafe_allow_html=True)
+                st.metric("Expected race time", f"{plan['mean_time']:,.1f}s")
+                st.metric("Downside · q90", f"{plan['q90_time']:,.1f}s", f"{plan['q90_time'] - plan['mean_time']:+.1f}s from mean")
+                st.metric("Race-time σ", f"{plan['std_time']:.2f}s")
+                st.metric("SC/VSC pit opportunity", f"{plan['sc_benefit_pct']:.1f}%")
+                if plan["has_cliff_warning"]:
+                    st.warning("Tire cliff warning: at least one stint exceeds its Model 2 cliff lap.")
+                else:
+                    st.success("All stints are within the empirical tire limits.")
+
+        st.caption(
+            "Model 1 driver delta is estimated from the selected driver's event-balanced historical pace-delta benchmark. "
+            + ("Model 2 CatBoost artifact loaded." if last_run["m2_catboost"] else "Model 2 parametric fallback active (CatBoost is not installed in this runtime).")
+            + (" Model 4 hazard artifact loaded." if last_run["m4_joblib"] else " Model 4 constant-hazard fallback active because its artifact could not be loaded.")
+        )
+
+        colors_by_plan = [RED, "#3766A5", "#238A78"]
+        section("Strategy timeline", "Stint lengths and compound changes; red markers show stints beyond their cliff threshold.")
+        gantt = go.Figure()
+        for plan_index, plan in enumerate(plans):
+            for stint_index, stint in enumerate(plan["strategy"].stints):
+                compound = stint.compound.upper()
+                gantt.add_trace(go.Bar(
+                    x=[stint.length],
+                    y=[plan["label"]],
+                    base=[stint.start_lap - 1],
+                    orientation="h",
+                    name=compound,
+                    legendgroup=compound,
+                    showlegend=not any(
+                        trace.name == compound and trace.showlegend for trace in gantt.data
+                    ),
+                    marker=dict(color=COMPOUND_COLORS.get(compound, colors_by_plan[plan_index]), line=dict(color="white", width=1)),
+                    text=[f"{compound[0]} · {stint.length}L"],
+                    textposition="inside",
+                    hovertemplate=f"{compound}<br>Lap {stint.start_lap}–{stint.end_lap}<extra>{plan['label']}</extra>",
+                ))
+                if stint.exceeds_cliff:
+                    gantt.add_trace(go.Scatter(
+                        x=[stint.start_lap - 1 + stint.cliff_lap], y=[plan["label"]],
+                        mode="markers", marker=dict(symbol="x", size=12, color=RED, line=dict(width=2)),
+                        name="Cliff exceeded", legendgroup="cliff", showlegend=not any(t.name == "Cliff exceeded" for t in gantt.data),
+                        hovertemplate=f"{compound} cliff at tire age {stint.cliff_lap}<extra></extra>",
+                    ))
+        gantt.update_layout(barmode="overlay", height=300, xaxis_title="Race lap", yaxis_title="", xaxis=dict(range=[0, profile.total_laps + 1]), legend_title="Compound")
+        st.plotly_chart(style_figure(gantt, 300), use_container_width=True)
+
+        section("Cumulative time delta fan chart", "Plan B and Plan C are compared with Plan A using matched Monte Carlo scenarios.")
+        baseline_samples = plans[0]["lap_time_samples"]
+        cumulative_baseline = np.cumsum(baseline_samples, axis=1)
+        lap_axis = np.arange(1, profile.total_laps + 1)
+        fan = go.Figure()
+        for plan_index, plan in enumerate(plans):
+            deltas = np.cumsum(plan["lap_time_samples"], axis=1) - cumulative_baseline
+            q10, median, q90 = np.percentile(deltas, [10, 50, 90], axis=0)
+            color = colors_by_plan[plan_index]
+            fan.add_trace(go.Scatter(x=lap_axis, y=q90, mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            fan.add_trace(go.Scatter(x=lap_axis, y=q10, mode="lines", line=dict(width=0), fill="tonexty", fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.13)", name=f"{plan['label']} · q10–q90", hovertemplate="Lap %{x}<br>Δ %{y:.1f}s<extra></extra>"))
+            fan.add_trace(go.Scatter(x=lap_axis, y=median, mode="lines", line=dict(color=color, width=2.5), name=f"{plan['label']} · median", hovertemplate="Lap %{x}<br>Median Δ %{y:.1f}s<extra></extra>"))
+        fan.add_hline(y=0, line_dash="dot", line_color="#697386")
+        fan.update_layout(height=390, xaxis_title="Race lap", yaxis_title="Cumulative time delta vs Plan A (s)")
+        st.plotly_chart(style_figure(fan, 390), use_container_width=True)
+
+        section("Plan A tire degradation curves", "Model 2 q10/q50/q90 pace-loss trajectories reset at each new stint.")
+        pace_curve = go.Figure()
+        for stint in plans[0]["stint_trajectories"]:
+            compound = stint["compound"]
+            color = COMPOUND_COLORS.get(compound, RED)
+            age = stint["age"]
+            pace_curve.add_trace(go.Scatter(x=age, y=stint["q90"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+            pace_curve.add_trace(go.Scatter(x=age, y=stint["q10"], mode="lines", line=dict(width=0), fill="tonexty", fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.12)", name=f"Stint {stint['stint_number']} {compound} · q10–q90"))
+            pace_curve.add_trace(go.Scatter(x=age, y=stint["q50"], mode="lines+markers", line=dict(color=color, width=2.5), name=f"Stint {stint['stint_number']} {compound} · q50"))
+            cliff = CLIFF_PRIORS.get(compound, 22)
+            if cliff <= int(age[-1]):
+                pace_curve.add_vline(x=cliff, line_dash="dot", line_color=RED, opacity=0.65, annotation_text=f"{compound} cliff L{cliff}", annotation_position="top")
+        pace_curve.update_layout(height=380, xaxis_title="Tire age within stint (laps)", yaxis_title="Predicted pace loss Δdeg (s)")
+        st.plotly_chart(style_figure(pace_curve, 380), use_container_width=True)
+    else:
+        st.info("Choose a circuit and driver, then run the simulation to see the strategy plans and charts.")
+
+
 # ---------------------------------------------------------------------------
 # Model 01: clearly separate notebook results from app-served predictions.
 # ---------------------------------------------------------------------------
@@ -613,7 +804,7 @@ elif page == "Roadmap & Files":
         ("01", "Lap pace", "Prototype benchmark in the main notebook; no model artifact connected to the app.", "active"),
         ("02", "Tire degradation", "Fuel-corrected compound curves and cliff detection remain to be implemented.", "planned"),
         ("04", "Safety Car / VSC risk", "Hazard estimation and calibration remain to be implemented.", "planned"),
-        ("03", "Strategy simulator", "Monte Carlo pit and compound comparison depends on Models 1, 2 and 4.", "planned"),
+        ("03", "Strategy simulator", "Interactive Monte Carlo strategy comparison is available as a research preview.", "active"),
         ("05", "Race outcomes", "A simple qualifying-position experiment exists; a validated ranking model remains future work.", "explore"),
     ]
     cols = st.columns(5)
@@ -632,6 +823,8 @@ elif page == "Roadmap & Files":
         "FastF1_basics.ipynb": "FastF1 session loading, lap timing, telemetry and circuit-map exploration.",
         "Barcelona_Analysis.ipynb": "Barcelona qualifying and race analysis notebook.",
         "Model1_LapTime.ipynb": "Primary pace-delta research, feature engineering, grouped validation and model benchmarks.",
+        "model3_strategy_simulator.py": "Monte Carlo strategy search with Model 1 pace benchmarks, Model 2 tire uncertainty and Model 4 neutralization risk.",
+        "model3_backtest.py": "Five-event 2026 strategy validation against recorded winner and podium tire choices.",
         "Model Development/model_1_LTP.ipynb": "Earlier lap-time and telemetry prototype notebook.",
         "Model Development/winnerProbabModel.ipynb": "Exploratory qualifying-position to race-outcome classification notebook.",
         "lap_data_raw.csv": "Raw merged lap timing, tire, weather and OpenF1 fields.",

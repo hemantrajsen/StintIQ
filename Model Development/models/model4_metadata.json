@@ -91,5 +91,17 @@
       "n": 23
     }
   },
-  "p_sc_given_event": 0.2
+  "p_sc_given_event": 0.2,
+  "artifact_migration": {
+    "date": "2026-11-24",
+    "reason": "Re-serialized the existing predictor to repair legacy SciPy BSpline state compatibility.",
+    "retrained": false,
+    "validation": "Hazard curve unchanged; Model 4 simulation returned expected lap-by-simulation shape.",
+    "runtime": {
+      "python": "3.14.3",
+      "scipy": "1.17.1",
+      "scikit_learn": "1.9.1",
+      "joblib": "1.6.0"
+    }
+  }
 }
